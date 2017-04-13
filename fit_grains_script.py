@@ -10,7 +10,10 @@ import os
 
 import numpy as np
 
-import dill
+try:
+    import dill as cpl
+except(ImportError):
+    import cPickle as cpl
 
 import yaml
 
@@ -32,22 +35,22 @@ def load_instrument(yml):
 #%% USER INPUT
 #==============================================================================
 matl_filename = 'materials.cpl'
-matl_key = 'ruby'
+matl_key = 'iron 2GPa'
 
 instr_filename = 'Hydra_Apr12.yml'
 
-imgser_dir = './'
+imgser_dir = './image_data'
 imgser_stem = 'imageseries-fc_%s.yml'
 
 grains_filename = 'results/grains.out'
-##==============================================================================
+#==============================================================================
 #%% INITIALIZATION
 #==============================================================================
 
 instr = load_instrument(instr_filename)
 det_keys = instr.detectors.keys()
 
-mat_list = dill.load(open(matl_filename, 'r'))
+mat_list = cpl.load(open(matl_filename, 'r'))
 plane_data = dict(
     zip([i.name for i in mat_list], mat_list)
 )[matl_key].planeData
@@ -64,17 +67,21 @@ for det_key in det_keys:
 # CAVEAT: the omega ranges in each imageseries in the dict are implied to be
 # identical.  Steps are also assumed to always be positive/CCW in this context.
 # These quantities are also in DEGREES <JVB 2017-03-26>
+"""
 ome_start = imgser_dict[det_key].omega[0, 0]
 ome_stop = imgser_dict[det_key].omega[-1, 1]
 ome_step = imgser_dict[det_key].omega[0, 1] - imgser_dict[det_key].omega[0, 0]
 ome_period = np.radians([ome_start, ome_start + 360])
-
+"""
+ome_period = (-np.pi, np.pi)
+"""
 # FIXME: this test will fail if omega spec wraps around 0, e.g.
 # [(0, 60), (-60, 0)] --> yields nwedges = 2 <JVB 2017-03-26>
 full_range = np.logical_and(
     angularDifference(ome_start, ome_stop, units='degrees')[0] < 1e-3, 
     imgser_dict[det_key].nwedges
 )
+"""
 #==============================================================================
 #%% FITTING
 #==============================================================================
@@ -89,10 +96,10 @@ for grain in grains_table:
     complvec, results = instr.pull_spots(
         plane_data, grain_params,
         imgser_dict,
-        tth_tol=0.25, eta_tol=2., ome_tol=2.,
+        tth_tol=0.25, eta_tol=1., ome_tol=1.,
         npdiv=2, threshold=0,
         eta_ranges=[np.radians([-95, 85]), np.radians([95, 265])],
-        ome_period=(0., 2.*np.pi),
+        ome_period=ome_period,
         dirname='results', filename=spots_filename, save_spot_list=False,
         quiet=True, lrank=1, check_only=False)
     
@@ -111,32 +118,8 @@ for grain in grains_table:
         # FIXME: spot saturations will have to be handled differently
         unsat_spots = np.ones(len(valid_refl_ids))
         
-        pred_ome = mapAngle(
-            np.array([x[5][-1] for x in presults]), 
-            ome_period)
-            
-        if not full_range:
-            # if here, incomplete have omega range and
-            # clip the refelctions very close to the edges to avoid
-            # problems with the least squares...
-            if np.sign(ome_step) < 0:
-                idx_ome = np.logical_and(
-                    pred_ome < np.radians(ome_start + 2*ome_step),
-                    pred_ome > np.radians(ome_stop - 2*ome_step)
-                    )
-            else:
-                idx_ome = np.logical_and(
-                    pred_ome > np.radians(ome_start + 2*ome_step),
-                    pred_ome < np.radians(ome_stop - 2*ome_step)
-                    )
-            idx = np.logical_and(
-                valid_refl_ids,
-                np.logical_and(unsat_spots, idx_ome)
-                )
-        else:
-            idx = np.logical_and(valid_refl_ids, unsat_spots)
-            pass  # end if edge case
-
+        idx = np.logical_and(valid_refl_ids, unsat_spots)
+ 
         # TODO: wire in reflection overlap tables
         """
         # if an overlap table has been written, load it and use it
