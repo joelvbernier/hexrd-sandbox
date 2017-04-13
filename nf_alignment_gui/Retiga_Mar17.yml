@@ -1,0 +1,39 @@
+beam:
+  energy: 71.676
+  vector: {azimuth: 90.0, polar_angle: 90.0}
+detectors:
+  L0:
+    pixels:
+      columns: 2048
+      rows: 2048
+      size: [0.00148, 0.00148]
+    transform:
+      t_vec_d: [0.0005948235840307348, 1.439281337047354, -4.867223769730732]
+      tilt_angles: [0.0, 0.0, 0.0136]
+  L1:
+    pixels:
+      columns: 2048
+      rows: 2048
+      size: [0.00148, 0.00148]
+    transform:
+      t_vec_d: [0.021355617455896425, 1.4364958217270198, -6.809192200557103]
+      tilt_angles: [0.0, 0.0, 0.0136]
+  L2:
+    pixels:
+      columns: 2048
+      rows: 2048
+      size: [0.00148, 0.00148]
+    transform:
+      t_vec_d: [0.04135561745589642, 1.4364958217270198, -8.809192200557103]
+      tilt_angles: [0.0, 0.0, 0.0136]
+  L3:
+    pixels:
+      columns: 2048
+      rows: 2048
+      size: [0.00148, 0.00148]
+    transform:
+      t_vec_d: [0.0683000619003411, 1.43186619209739, -10.749007015371918]
+      tilt_angles: [0.0, 0.0, 0.013600000000000018]
+oscillation_stage:
+  chi: -3.8839978562617174e-05
+  t_vec_s: [0.0, 0.0, 0.0]
