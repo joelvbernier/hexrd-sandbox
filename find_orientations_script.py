@@ -5,6 +5,10 @@ Created on Wed Mar 22 19:04:10 2017
 
 @author: bernier2
 """
+from __future__ import print_function
+
+import os
+
 import multiprocessing
 
 import numpy as np
@@ -18,27 +22,27 @@ except(ImportError):
 
 import yaml
 
-import hexrd.constants as cnst
+from hexrd import constants as cnst
+from hexrd import config
 from hexrd import imageseries
 from hexrd.imageseries.omega import OmegaImageSeries
 from hexrd import instrument
-from hexrd import matrixutil as mutil
 from hexrd.findorientations import \
-generate_orientation_fibers, \
-run_cluster
+    generate_orientation_fibers, \
+    run_cluster
 from hexrd.xrd import transforms_CAPI as xfcapi
 
-# plane data
-def load_pdata(cpkl):
-    with file(cpkl, "r") as matf:
-        matlist = cpl.load(matf)
-    return matlist[0].planeData
+from matplotlib import pyplot as plt
 
+# plane data
+def load_pdata(cpkl, key):
+    with file(cpkl, "r") as matf:
+        mat_list = cpl.load(matf)
+    return dict(zip([i.name for i in mat_list], mat_list))[mat_key].planeData
 
 # images
 def load_images(yml):
-    return imageseries.open(yml, "image-files")
-
+    return imageseries.open(yml, "frame-cache")
 
 # instrument
 def load_instrument(yml):
@@ -47,78 +51,126 @@ def load_instrument(yml):
     return instrument.HEDMInstrument(instrument_config=icfg)
 
 #%%
-'''
-ims = load_images('./ff_max_images.yml')
+#==============================================================================
+# START USER INPUT
+#==============================================================================
 
-Pimgs = imageseries.process.ProcessedImageSeries
+# FIXME:  reconcile with config file!!! Goes for pretty much all the options
 
-mat_list = cpl.load(open('materials.cpl', 'r'))
-mat_key = 'iron 2GPa'
-pd = dict(zip([i.name for i in mat_list], mat_list))[mat_key].planeData
+materials_fname = 'materials.hexrd'
+mat_key = 'ruby'
 
-m = ims.metadata
-pids = m['panels']
-d = dict(zip(pids, range(len(pids))))
+instr_config_filename = 'dexelas_f2_Apr17.yml'
 
-if 'process' in m:
-    pspec = m['process']
-    ops = []
-    for p in pspec:
-        k = p.keys()[0]
-        ops.append((k, p[k]))
-    pims = Pimgs(ims, ops)
-else:
-    pims = ims
-'''
+cfg_filename = 'multiruby1.yml'
+
+image_stem = "%s_%05d"
+fc_dir_stem = image_stem + "-fcache-dir"
+
+h5_file_number = 83
+
+# for indexing
+map_threshold = 1000
+fiber_gen_threshold = 1000
+fiber_ndiv = 720
+fiber_seeds = [0, 1, 2]
+tth_tol=0.2
+eta_tol=1.0
+ome_tol=1.0
+npdiv=1
+
+min_samples=5
+compl_thresh=0.51
+cl_radius=1.0
+
+omegas_filename = 'fastsweep_omegas_360.npy'
+
+max_tth = np.radians(9.)
+
+make_max_frames = False
+max_frames_output_name = 'multiruby_cal_scan_001.hdf5'
+#==============================================================================
+# END USER INPUT
+#==============================================================================
+
 #%%
-mat_list = cpl.load(open('materials.cpl', 'r'))
-mat_key = 'iron 2GPa'
-pd = dict(zip([i.name for i in mat_list], mat_list))[mat_key].planeData
+cfg = config.open(cfg_filename)[0]
 
-icfg = yaml.load(open('Hydra_Apr12.yml', 'r'))
-instr = instrument.HEDMInstrument(instrument_config=icfg)
+analysis_id = '%s_%s' %(
+    cfg.analysis_name.strip().replace(' ', '-'),
+    cfg.material.active.strip().replace(' ', '-'),
+    )
+
+# load plane data
+pd = load_pdata(materials_fname, mat_key)
+pd.tThMax = max_tth
+
+# load instrument
+instr = load_instrument(instr_config_filename)
 det_keys = instr.detectors.keys()
 
-'''
-imgd = dict.fromkeys(instr.detectors.keys())
-for pid in imgd:
-    imgd[pid] = pims[d[pid]]
+# load omegas
+# WARNING: using master array in root directory!
+# FIXME: change ASAP to make saved caches contain omega info!!!
+omegas_array = np.load(omegas_filename)
 
-imgd = dict.fromkeys(det_keys)
-for det_key in imgd:
-    ims = imageseries.open('image_data/imageseries-fc_%s.yml' % (det_key), 'frame-cache')
-    imgd[det_key] = np.max(np.array([ims[k] for k in range(len(ims))]), axis=0)
-'''    
 #%%
-'''
-pgen = generate_tth_eta(pd, instr,
-                 eta_min=0., eta_max=360.,
-                 pixel_size=(0.001, 0.25))
-wimg = pgen.warp_image(imgd)
-'''
+
+imsd = dict.fromkeys(det_keys)
+for det_key in det_keys:
+    str_tuple = (det_key.lower(), h5_file_number)
+    yml_file = os.path.join(
+            fc_dir_stem % str_tuple, 
+            image_stem % str_tuple + '-fcache.yml')
+    ims = load_images(yml_file)
+    # FIXME: imageseries needs to have omegas; kludged for now
+    ims.metadata['omega'] = omegas_array
+    imsd[det_key] = OmegaImageSeries(ims)
+
+
+if make_max_frames:
+    max_frames = dict.fromkeys(det_keys)
+    for det_key in det_keys:
+        max_frames[det_key] = np.max(
+                np.array([i for i in imsd[det_key]]), 
+                axis=0
+            )
+    ims_out = imageseries.open(
+            None, 'array', 
+            data=np.array([max_frames[i] for i in max_frames]), 
+            meta={'panels':max_frames.keys()}
+        )
+    imageseries.write(
+            ims_out, max_frames_output_name, 
+            'hdf5', path='/imageseries'
+        )
+#%%
+
+# note that here maps are only used for quaternion generation
+active_hkls = fiber_seeds
+
+# omega period... 
+# QUESTION: necessary???
+ome_period = np.radians(cfg.find_orientations.omega.period)
+
+# make eta_ome maps
+eta_ome = instrument.GenerateEtaOmeMaps(
+    imsd, instr, pd, 
+    active_hkls=active_hkls, threshold=map_threshold)
+
 #%%
 cmap = plt.cm.hot
 cmap.set_under('b')
 
-pd.tThMax = np.radians(8)
-n_rings = len(pd.getTTh())
-imsd = dict.fromkeys(instr.detectors.keys())
-for det_key in instr.detectors:
-    ims = imageseries.open('image_data/imageseries-fc_%s.yml' % (det_key), 'frame-cache')
-    imsd[det_key] = OmegaImageSeries(ims)
-
-#rp = instr.extract_line_positions(pd, imsd, collapse_tth=True, do_interpolation=False, tth_tol=0.15, eta_tol=0.25, npdiv=2)
-eta_ome = instrument.GenerateEtaOmeMaps(imsd, instr, pd, threshold=50)
-
 fig, ax = plt.subplots()
-i_ring = 0
+i_ring = 2
 this_map_f = -ndimage.filters.gaussian_laplace(
     eta_ome.dataStore[i_ring], 1.0,
 )
 ax.imshow(this_map_f, interpolation='nearest', 
           vmin=0.1, vmax=1.0, cmap=cmap)
 labels, num_spots = ndimage.label(
-    this_map_f > 10, ndimage.generate_binary_structure(2, 1)
+    this_map_f > 0, ndimage.generate_binary_structure(2, 1)
 )
 coms = np.atleast_2d(
     ndimage.center_of_mass(
@@ -129,11 +181,20 @@ ax.hold(True)
 ax.plot(coms[:, 1], coms[:, 0], 'm+', ms=12)
 ax.axis('tight')
 #%%
-ncpus = multiprocessing.cpu_count()
-qfib = generate_orientation_fibers(eta_ome, instr.chi, 100, [0, 1, ], 720, 
-                                   ncpus=ncpus)
+#==============================================================================
+# SEARCH SPACE GENERATION
+#==============================================================================
+ncpus = multiprocessing.cpu_count()  # USE ALL BY DEFAULT!!!
+qfib = generate_orientation_fibers(
+    eta_ome, instr.chi, fiber_gen_threshold, 
+    fiber_seeds, fiber_ndiv, 
+    ncpus=ncpus)
+print("INFO: will test %d quaternions" %qfib.shape[1])
 #%%
-# (quat; plane_data, instrument, imgser_dict, tth_tol, eta_tol, ome_tol, npdiv, threshold)
+#==============================================================================
+# ORIENTATION SCORING
+#==============================================================================
+
 def test_orientation_FF_init(params):
     global paramMP
     paramMP = params
@@ -161,8 +222,8 @@ def test_orientation_FF_reduced(quat):
         phi*n, cnst.zeros_3, cnst.identity_6x1,
     ])
     
-    compl, scrap = instr.pull_spots(
-        pd, grain_params, imsd,
+    compl, scrap = instrument.pull_spots(
+        plane_data, grain_params, imgser_dict,
         tth_tol=tth_tol, eta_tol=eta_tol, ome_tol=ome_tol,
         npdiv=npdiv, threshold=threshold,
         eta_ranges=None, ome_period=(-np.pi, np.pi),
@@ -174,21 +235,33 @@ params = dict(
         plane_data=pd, 
         instrument=instr,
         imgser_dict=imsd,
-        tth_tol=0.25, 
-        eta_tol=1.0,
-        ome_tol=1.0,
-        npdiv=1,
-        threshold=50)
+        tth_tol=tth_tol, 
+        eta_tol=eta_tol,
+        ome_tol=ome_tol,
+        npdiv=npdiv,
+        threshold=fiber_gen_threshold)
 
 pool = multiprocessing.Pool(ncpus, test_orientation_FF_init, (params, ))
 completeness = pool.map(test_orientation_FF_reduced, qfib.T)
 pool.close()
 
-#%%
-qbar, cl = run_cluster(completeness, qfib, pd.getQSym(), cfg, 
-            min_samples=5, compl_thresh=0.9, radius=1.0)
 
-gw = instrument.GrainDataWriter('./results/grains.out')
+#%%
+#==============================================================================
+# CLUSTERING AND GRAINS OUTPUT
+#==============================================================================
+if not os.path.exists(cfg.analysis_dir):
+    os.makedirs(cfg.analysis_dir)
+
+qbar, cl = run_cluster(completeness, qfib, pd.getQSym(), cfg, 
+            min_samples=min_samples, 
+            compl_thresh=compl_thresh, 
+            radius=cl_radius)
+
+np.savetxt('accepted_orientations_' + analysis_id + '.dat', qbar.T, 
+           fmt='%.18e', delimiter='\t')
+
+gw = instrument.GrainDataWriter(os.path.join(cfg.analysis_dir, 'grains.out'))
 grain_params_list = []
 for q in qbar.T:
     phi = 2*np.arccos(q[0])

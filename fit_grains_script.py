@@ -5,7 +5,6 @@ Created on Wed Mar 22 19:04:10 2017
 
 @author: bernier2
 """
-import sys
 import os
 
 import numpy as np
@@ -17,6 +16,7 @@ except(ImportError):
 
 import yaml
 
+from hexrd import config
 from hexrd import imageseries
 from hexrd.imageseries.omega import OmegaImageSeries
 from hexrd import instrument
@@ -31,21 +31,33 @@ def load_instrument(yml):
         icfg = yaml.load(f)
     return instrument.HEDMInstrument(instrument_config=icfg)
 
+# images
+def load_images(yml):
+    return imageseries.open(yml, "frame-cache")
+
 #==============================================================================
 #%% USER INPUT
 #==============================================================================
-matl_filename = 'materials.cpl'
-matl_key = 'iron 2GPa'
+matl_filename = 'materials.hexrd'
+matl_key = 'gold'
 
-instr_filename = 'Hydra_Apr12.yml'
+tth_max = np.radians(21)
 
-imgser_dir = './image_data'
-imgser_stem = 'imageseries-fc_%s.yml'
+instr_filename = 'dexelas_f2_Apr17.yml'
 
-grains_filename = 'results/grains.out'
+image_stem = "%s_%05d"
+fc_dir_stem = image_stem + "-fcache-dir"
+
+h5_file_number = 84
+
+cfg_filename =  'multigold1.yml'
+
+omegas_filename = 'fastsweep_omegas_360.npy'
+
 #==============================================================================
 #%% INITIALIZATION
 #==============================================================================
+cfg = config.open(cfg_filename)[0]
 
 instr = load_instrument(instr_filename)
 det_keys = instr.detectors.keys()
@@ -54,13 +66,22 @@ mat_list = cpl.load(open(matl_filename, 'r'))
 plane_data = dict(
     zip([i.name for i in mat_list], mat_list)
 )[matl_key].planeData
+plane_data.tThMax = None
+plane_data.exclusions = np.zeros_like(plane_data.exclusions, dtype=bool)
+plane_data.tThMax = tth_max
+
+# FIXME: should get this from imageseries directly
+omegas_array = np.load(omegas_filename)
 
 imgser_dict = dict.fromkeys(det_keys)
 for det_key in det_keys:
-    ims = imageseries.open(
-        os.path.join(imgser_dir, imgser_stem %(det_key.upper())
-        ), 'frame-cache'
-    )
+    str_tuple = (det_key.lower(), h5_file_number)
+    yml_file = os.path.join(
+            fc_dir_stem % str_tuple, 
+            image_stem % str_tuple + '-fcache.yml')
+    ims = load_images(yml_file)
+    # FIXME: imageseries needs to have omegas; kludged for now
+    ims.metadata['omega'] = omegas_array
     imgser_dict[det_key] = OmegaImageSeries(ims)
     
 
@@ -73,7 +94,7 @@ ome_stop = imgser_dict[det_key].omega[-1, 1]
 ome_step = imgser_dict[det_key].omega[0, 1] - imgser_dict[det_key].omega[0, 0]
 ome_period = np.radians([ome_start, ome_start + 360])
 """
-ome_period = (-np.pi, np.pi)
+ome_period = np.radians(cfg.find_orientations.omega.period)
 """
 # FIXME: this test will fail if omega spec wraps around 0, e.g.
 # [(0, 60), (-60, 0)] --> yields nwedges = 2 <JVB 2017-03-26>
@@ -85,8 +106,11 @@ full_range = np.logical_and(
 #==============================================================================
 #%% FITTING
 #==============================================================================
+grains_filename = os.path.join(cfg.analysis_dir, 'grains.out')
 grains_table = np.loadtxt(grains_filename, ndmin=2)
 gw = instrument.GrainDataWriter(grains_filename)
+
+#%%
 grain_params_fit = []
 for grain in grains_table:
     gid = int(grain[0])
@@ -96,11 +120,12 @@ for grain in grains_table:
     complvec, results = instr.pull_spots(
         plane_data, grain_params,
         imgser_dict,
-        tth_tol=0.25, eta_tol=1., ome_tol=1.,
-        npdiv=2, threshold=0,
+        tth_tol=0.2, eta_tol=2., ome_tol=2.,
+        npdiv=2, threshold=15,
         eta_ranges=[np.radians([-95, 85]), np.radians([95, 265])],
         ome_period=ome_period,
-        dirname='results', filename=spots_filename, save_spot_list=False,
+        dirname=cfg.analysis_dir, filename=spots_filename, 
+        save_spot_list=False,
         quiet=True, lrank=1, check_only=False)
     
     # ======= DETERMINE VALID REFLECTIONS =======
