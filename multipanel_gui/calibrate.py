@@ -21,7 +21,8 @@ tilt_DFTL = np.zeros(3)
 class InstrumentViewer(object):
 
     def __init__(self, instr, ims, planeData,
-                 tilt=tilt_DFTL, tvec=tvec_DFLT):
+                 tilt=tilt_DFTL, tvec=tvec_DFLT, 
+                 slider_delta=10.):
         self.planeData = planeData
         self.instr = instr
         self._load_panels()
@@ -37,7 +38,7 @@ class InstrumentViewer(object):
         self.active_panel_mode = False
         self.image = None
         self.have_rings = False
-        self.slider_delta = 5.0
+        self.slider_delta = slider_delta
         self.set_interactors()
         self.show_image()
         plt.show()
@@ -249,7 +250,7 @@ class InstrumentViewer(object):
             self.have_rings = True
 
             for pr in self.ring_data:
-                self._axes.plot(pr[:, 1], pr[:, 0], 'c.', ms=4)
+                self._axes.plot(pr[:, 1], pr[:, 0], 'c.', ms=2)
         #self._axes.set_xlim(-0.5, dp.cols-0.5)
         #self._axes.set_ylim(-0.5, dp.rows-0.5)
 
