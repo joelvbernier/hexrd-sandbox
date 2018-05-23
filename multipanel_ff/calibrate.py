@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib as mpl
-mpl.use("TkAgg")
+mpl.use("Qt5Agg")
 from matplotlib import pyplot as plt
 from matplotlib.widgets import Slider, Button, RadioButtons
 
@@ -11,7 +11,7 @@ from hexrd import imageseries
 
 from skimage import io
 from skimage import transform as tf
-from skimage.exposure import equalize_adapthist
+from skimage.exposure import equalize_hist, equalize_adapthist
 
 Pimgs = imageseries.process.ProcessedImageSeries
 
@@ -22,13 +22,13 @@ class InstrumentViewer(object):
 
     def __init__(self, instr, ims, planeData,
                  tilt=tilt_DFTL, tvec=tvec_DFLT, 
-                 slider_delta=10.):
+                 slider_delta=10., pixel_size=0.5):
         self.planeData = planeData
         self.instr = instr
         self._load_panels()
         self._load_images(ims)
-        self.dplane = DisplayPlane()
-        self.pixel_size = 0.6
+        self.dplane = DisplayPlane(tvec=tvec)
+        self.pixel_size = pixel_size
         self._make_dpanel()
 
         self._figure, self._axes = plt.subplots()
@@ -87,21 +87,21 @@ class InstrumentViewer(object):
         axcolor = 'lightgoldenrodyellow'
 
         # . translations
-        self.tx_ax = plt.axes([0.65, 0.65, 0.30, 0.03], axisbg=axcolor)
-        self.ty_ax = plt.axes([0.65, 0.60, 0.30, 0.03], axisbg=axcolor)
-        self.tz_ax = plt.axes([0.65, 0.55, 0.30, 0.03], axisbg=axcolor)
+        self.tx_ax = plt.axes([0.65, 0.65, 0.30, 0.03], facecolor=axcolor)
+        self.ty_ax = plt.axes([0.65, 0.60, 0.30, 0.03], facecolor=axcolor)
+        self.tz_ax = plt.axes([0.65, 0.55, 0.30, 0.03], facecolor=axcolor)
 
         # . tilts
-        self.gx_ax = plt.axes([0.65, 0.50, 0.30, 0.03], axisbg=axcolor)
-        self.gy_ax = plt.axes([0.65, 0.45, 0.30, 0.03], axisbg=axcolor)
-        self.gz_ax = plt.axes([0.65, 0.40, 0.30, 0.03], axisbg=axcolor)
+        self.gx_ax = plt.axes([0.65, 0.50, 0.30, 0.03], facecolor=axcolor)
+        self.gy_ax = plt.axes([0.65, 0.45, 0.30, 0.03], facecolor=axcolor)
+        self.gz_ax = plt.axes([0.65, 0.40, 0.30, 0.03], facecolor=axcolor)
 
         self._active_panel_id = self.panel_ids[0]
         panel = self.instr._detectors[self._active_panel_id]
         self._make_sliders(panel)
 
         # radio button (panel selector)
-        rd_ax = plt.axes([0.65, 0.70, 0.30, 0.15], axisbg=axcolor)
+        rd_ax = plt.axes([0.65, 0.70, 0.30, 0.15], facecolor=axcolor)
         self.radio_panels = RadioButtons(rd_ax, self.panel_ids)
         self.radio_panels.on_clicked(self.on_change_panel)
 
@@ -294,11 +294,20 @@ class InstrumentViewer(object):
             warped += tf.warp(img, tform3,
                               output_shape=(self.dpanel.rows,
                                             self.dpanel.cols))
-        img = equalize_adapthist(warped, clip_limit=0.05, nbins=2**16)
+        """
+        IMAGE PLOTTING AND LIMIT CALCULATION
+        """
+        #img = equalize_adapthist(warped, clip_limit=0.05, nbins=2**16)
+        #img = equalize_hist(warped, nbins=2**14)
+        cmap = plt.cm.inferno
+        cmap.set_under='b'
+        img = warped
+        vmin = np.percentile(img, 50)
+        vmax = np.percentile(img, 99)
         if self.image is None:
             self.image = self._axes.imshow(
-                    img, cmap=plt.cm.bone,
-                    vmax=None,
+                    img, cmap=cmap,
+                    vmin=vmin, vmax=vmax,
                     interpolation="none")
         else:
             self.image.set_data(img)

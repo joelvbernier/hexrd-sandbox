@@ -17,6 +17,7 @@ def load_pdata(cpkl, key, tth_max=None):
         matlist = cPickle.load(matf)
     pd = dict(zip([i.name for i in matlist], matlist))[key].planeData
     if tth_max is not None:
+        pd.exclusions = np.zeros_like(pd.exclusions, dtype=bool)
         pd.tThMax = np.radians(tth_max)
     return pd
 
@@ -44,6 +45,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--slider-delta', help="+/- delta for slider range", type=float, default=10.)
     parser.add_argument('-p', '--plane-distance', help="distance of projection plane downstream", type=float, default=1000)
     parser.add_argument('-t', '--tth-max', help="max tth for rings", type=float, default=np.nan)
+    parser.add_argument('-s', '--pixel-size', help="pixel size for rendering", type=float, default=0.5)
     
     args = parser.parse_args()
    
@@ -54,6 +56,7 @@ if __name__ == '__main__':
     slider_delta = args.slider_delta
     plane_distance = args.plane_distance
     tth_max = args.tth_max
+    pixel_size = args.pixel_size
     
     # load instrument and imageseries
     instr = load_instrument(instrument_cfg)
@@ -66,4 +69,4 @@ if __name__ == '__main__':
  
     tvec = np.r_[0., 0., -plane_distance]
 
-    iv = IView(instr, ims, pdata, tvec=tvec, slider_delta=slider_delta)
+    iv = IView(instr, ims, pdata, tvec=tvec, slider_delta=slider_delta, pixel_size=pixel_size)

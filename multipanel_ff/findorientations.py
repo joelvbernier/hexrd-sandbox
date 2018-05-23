@@ -8,6 +8,10 @@ Created on Wed Mar 22 19:04:10 2017
 from __future__ import print_function
 
 import os
+# =============================================================================
+# To disable numba when running, set env var to 0
+os.environ['HEXRD_USE_NUMBA'] = '0'
+# =============================================================================
 
 import glob
 
@@ -37,6 +41,7 @@ from hexrd.findorientations import \
 from hexrd.xrd import transforms_CAPI as xfcapi
 from hexrd.xrd import indexer
 from matplotlib import pyplot as plt
+from hexrd.xrd.xrdutil import EtaOmeMaps
 
 
 # plane data
@@ -64,19 +69,24 @@ def load_instrument(yml):
 # =============================================================================
 
 # cfg file -- currently ignores image_series block
-cfg_filename = 'ruby_config.yml'
-samp_name = 'RUBY'
+cfg_filename = 'Au_config.yml'
+samp_name = 'Au_hydra'
 scan_number = 0
+
 data_dir = os.getcwd()
 
-fc_stem = "%s_%04d-fc_%%s*.npz" % (samp_name, scan_number)
+fc_stem = "%s_%06d-fc_%%s.npz" % (samp_name, scan_number)
 
-make_max_frames = False
+make_max_frames = True
 use_direct_search = False
 
 # for clustering neighborhood
 # FIXME
 min_samples = 15
+
+# maps options
+clobber_maps = True
+show_maps = True
 
 # =============================================================================
 # END USER INPUT
@@ -95,9 +105,10 @@ if active_hkls == 'all':
     active_hkls = None
 
 max_tth = cfg.fit_grains.tth_max
-try:
-    max_tth = np.degrees(float(max_tth))
-except(ValueError):
+if max_tth:
+    if type(cfg.fit_grains.tth_max) != bool:
+        max_tth = np.degrees(float(max_tth))
+else:
     max_tth = None
 
 # load plane data
@@ -107,6 +118,11 @@ plane_data.tThMax = max_tth
 # load instrument
 instr = load_instrument(cfg.instrument.parameters)
 det_keys = instr.detectors.keys()
+
+# !!! panel buffer setting is global and assumes same typ of panel!
+for det_key in det_keys:
+    instr.detectors[det_key].panel_buffer = \
+        np.array(cfg.fit_grains.panel_buffer)
 
 # grab eta ranges
 eta_ranges = cfg.find_orientations.eta.range
@@ -122,7 +138,7 @@ tth_tol = np.degrees(plane_data.tThWidth)
 eta_tol = cfg.find_orientations.eta.tolerance
 ome_tol = cfg.find_orientations.omega.tolerance
 # omega period...
-# QUESTION: necessary???
+# ???: necessary?
 ome_period = np.radians(cfg.find_orientations.omega.period)
 
 npdiv = cfg.fit_grains.npdiv
@@ -134,10 +150,12 @@ cl_radius = cfg.find_orientations.clustering.radius
 
 imsd = dict.fromkeys(det_keys)
 for det_key in det_keys:
-    fc_file = glob.glob(
-        os.path.join(
-            data_dir,
-            fc_stem % det_key
+    fc_file = sorted(
+        glob.glob(
+            os.path.join(
+                data_dir,
+                fc_stem % det_key.lower()
+            )
         )
     )
     if len(fc_file) != 1:
@@ -148,6 +166,7 @@ for det_key in det_keys:
 
 
 if make_max_frames:
+    print("Making requested max frame...")
     max_frames_output_name = os.path.join(
         data_dir,
         "%s_%d-maxframes.hdf5" % (samp_name, scan_number)
@@ -171,42 +190,54 @@ if make_max_frames:
         )
 # %%
 
-print("INFO:\tbuilding eta_ome maps")
-start = timeit.default_timer()
+maps_fname = analysis_id + "_maps.npz"
+if os.path.exists(maps_fname) and not clobber_maps:
+    eta_ome = EtaOmeMaps(maps_fname)
+else:
+    print("INFO:\tbuilding eta_ome maps")
+    start = timeit.default_timer()
 
-# make eta_ome maps
-eta_ome = instrument.GenerateEtaOmeMaps(
-    imsd, instr, plane_data,
-    active_hkls=active_hkls, threshold=build_map_threshold,
-    ome_period=cfg.find_orientations.omega.period)
+    # make eta_ome maps
+    eta_ome = instrument.GenerateEtaOmeMaps(
+        imsd, instr, plane_data,
+        active_hkls=active_hkls, threshold=build_map_threshold,
+        ome_period=cfg.find_orientations.omega.period)
 
-print("INFO:\t\t...took %f seconds" % (timeit.default_timer() - start))
+    print("INFO:\t\t...took %f seconds" % (timeit.default_timer() - start))
 
-# save them
-eta_ome.save(analysis_id + "_maps.npz")
+    # save them
+    eta_ome.save(maps_fname)
+
 
 # %%
-cmap = plt.cm.hot
-cmap.set_under('b')
+# =============================================================================
+# OPTINAL PLOTTING
+# =============================================================================
+if show_maps:
+    cmap = plt.cm.hot
+    cmap.set_under('b')
 
-fig, ax = plt.subplots()
-i_ring = 0
-this_map_f = -ndimage.filters.gaussian_laplace(
-    eta_ome.dataStore[i_ring], 1.0,
-)
-ax.imshow(this_map_f, interpolation='nearest',
-          vmin=on_map_threshold, vmax=None, cmap=cmap)
-labels, num_spots = ndimage.label(
-    this_map_f > on_map_threshold, ndimage.generate_binary_structure(2, 1)
-)
-coms = np.atleast_2d(
-    ndimage.center_of_mass(
-        eta_ome.dataStore[i_ring], labels=labels, index=range(1, num_spots+1)
+    fig, ax = plt.subplots()
+    i_ring = 1
+    this_map_f = -ndimage.filters.gaussian_laplace(
+        eta_ome.dataStore[i_ring], 1.0,
     )
-)
-ax.hold(True)
-ax.plot(coms[:, 1], coms[:, 0], 'm+', ms=12)
-ax.axis('tight')
+    ax.imshow(this_map_f, interpolation='nearest',
+              vmin=on_map_threshold, vmax=None, cmap=cmap)
+    labels, num_spots = ndimage.label(
+        this_map_f > on_map_threshold, ndimage.generate_binary_structure(2, 1)
+    )
+    coms = np.atleast_2d(
+        ndimage.center_of_mass(
+            eta_ome.dataStore[i_ring],
+            labels=labels,
+            index=range(1, num_spots+1)
+        )
+    )
+    ax.hold(True)
+    ax.plot(coms[:, 1], coms[:, 0], 'm+', ms=12)
+    ax.axis('tight')
+
 # %%
 # =============================================================================
 # SEARCH SPACE GENERATION
@@ -260,7 +291,8 @@ if use_direct_search:
             plane_data, grain_params, imgser_dict,
             tth_tol=tth_tol, eta_tol=eta_tol, ome_tol=ome_tol,
             npdiv=npdiv, threshold=threshold,
-            eta_ranges=None, ome_period=(-np.pi, np.pi),
+            eta_ranges=np.radians(cfg.find_orientations.eta.range),
+            ome_period=(-np.pi, np.pi),
             check_only=True)
 
         return sum(compl)/float(len(compl))
