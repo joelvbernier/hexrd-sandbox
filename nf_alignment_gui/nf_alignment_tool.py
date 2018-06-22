@@ -1,15 +1,12 @@
 import numpy as np
-import matplotlib as mpl
-mpl.use("Qt5Agg")
 from matplotlib import pyplot as plt
-from matplotlib.widgets import Slider, Button, RadioButtons
+from matplotlib.widgets import Slider, RadioButtons
 
 from hexrd.gridutil import cellIndices, make_tolerance_grid
 from hexrd.xrd import transforms_CAPI as xfcapi
 from hexrd import instrument
 from hexrd import imageseries
 
-from skimage import io
 from skimage import transform as tf
 from skimage.exposure import equalize_adapthist
 
@@ -22,10 +19,8 @@ save_max_frames = True
 # FIXME: get rid of dpanel stuff here; not relevant for NF
 tvec_DFLT = np.r_[0., 1.4, -5.5]
 tilt_DFLT = np.zeros(3)
-'''
-tvec_DFLT = np.r_[0., 0., -2000.]
-tilt_DFLT = np.zeros(3)
-'''
+
+
 class InstrumentViewer(object):
     """
     cobbled from multipanel version
@@ -36,7 +31,7 @@ class InstrumentViewer(object):
     """
     def __init__(self, instr, ims, planeData, grain_param_list,
                  grain_ids=None, make_images=False,
-                 ome_tol=1.0, ome_ranges=[(-np.pi, np.pi),],
+                 ome_tol=1.0, ome_ranges=[(-np.pi, np.pi), ],
                  tilt=tilt_DFLT, tvec=tvec_DFLT,
                  ):
 
@@ -112,8 +107,10 @@ class InstrumentViewer(object):
                 del_ome = oims.omega[0, 1] - oims.omega[0, 0]  # degrees
                 simd = panel.simulate_rotation_series(
                     self.planeData, self.gpl,
-                    self.ome_ranges, chi=self.chi, tVec_s=self.tvec
+                    ome_ranges=self.ome_ranges,
+                    chi=self.chi, tVec_s=self.tvec
                     )
+
                 pred_omes = np.degrees(
                     np.vstack(simd[2])[:, 2]
                 )  # in DEGREES
@@ -129,8 +126,9 @@ class InstrumentViewer(object):
                     if len(fidxs) > 0:
                         frame_indices += fidxs
                 if len(frame_indices) == 0:
-                    raise RuntimeError, \
+                    raise RuntimeError(
                         "no omegas in speficied imageseries range(s)"
+                    )
                 max_frames.append(
                     np.max(np.array([oims[k] for k in frame_indices]), axis=0)
                 )
@@ -143,12 +141,12 @@ class InstrumentViewer(object):
                 data=np.array(max_frames),
                 meta=dict(panels=self.panel_ids))
             gid_str = ''
-            for s in ['%s-' %i for i in self._grain_ids]:
+            for s in ['%s-' % i for i in self._grain_ids]:
                 gid_str += s
             if save_max_frames:
                 imageseries.write(
                     ims,
-                    'imageseries-max_grains_%s.h5' %gid_str[:-1],
+                    'imageseries-max_grains_%s.h5' % gid_str[:-1],
                     'hdf5', path='data')
             pass  # closes conditional on make_images
         m = ims.metadata
@@ -182,21 +180,21 @@ class InstrumentViewer(object):
         axcolor = 'lightgoldenrodyellow'
 
         # . translations
-        self.tx_ax = plt.axes([0.65, 0.65, 0.30, 0.03], axisbg=axcolor)
-        self.ty_ax = plt.axes([0.65, 0.60, 0.30, 0.03], axisbg=axcolor)
-        self.tz_ax = plt.axes([0.65, 0.55, 0.30, 0.03], axisbg=axcolor)
+        self.tx_ax = plt.axes([0.65, 0.65, 0.30, 0.03], FaceColor=axcolor)
+        self.ty_ax = plt.axes([0.65, 0.60, 0.30, 0.03], FaceColor=axcolor)
+        self.tz_ax = plt.axes([0.65, 0.55, 0.30, 0.03], FaceColor=axcolor)
 
         # . tilts
-        self.gx_ax = plt.axes([0.65, 0.50, 0.30, 0.03], axisbg=axcolor)
-        self.gy_ax = plt.axes([0.65, 0.45, 0.30, 0.03], axisbg=axcolor)
-        self.gz_ax = plt.axes([0.65, 0.40, 0.30, 0.03], axisbg=axcolor)
+        self.gx_ax = plt.axes([0.65, 0.50, 0.30, 0.03], FaceColor=axcolor)
+        self.gy_ax = plt.axes([0.65, 0.45, 0.30, 0.03], FaceColor=axcolor)
+        self.gz_ax = plt.axes([0.65, 0.40, 0.30, 0.03], FaceColor=axcolor)
 
         self._active_panel_id = self.panel_ids[0]
         panel = self.instr._detectors[self._active_panel_id]
         self._make_sliders(panel)
 
         # radio button (panel selector)
-        rd_ax = plt.axes([0.65, 0.70, 0.30, 0.15], axisbg=axcolor)
+        rd_ax = plt.axes([0.65, 0.70, 0.30, 0.15], FaceColor=axcolor)
         self.radio_panels = RadioButtons(rd_ax, self.panel_ids)
         self.radio_panels.on_clicked(self.on_change_panel)
 
@@ -245,7 +243,6 @@ class InstrumentViewer(object):
         self.slider_gx.on_changed(self.update)
         self.slider_gy.on_changed(self.update)
         self.slider_gz.on_changed(self.update)
-
 
     # ========================= Properties
     @property
@@ -324,10 +321,11 @@ class InstrumentViewer(object):
 
         # redo simulation
         valid_ids, valid_hkls, valid_angs, valid_xys, ang_pixel_size = \
-          panel.simulate_rotation_series(
-              self.planeData, self.gpl,
-              self.ome_ranges,
-              chi=self.chi)
+            panel.simulate_rotation_series(
+                    self.planeData, self.gpl,
+                    ome_ranges=self.ome_ranges,
+                    chi=self.chi, tVec_s=self.tvec
+            )
 
         # generate and save rings
         self.sim_data = []
@@ -355,10 +353,11 @@ class InstrumentViewer(object):
         if not self.have_overlay:
             dp = self.dpanel
             valid_ids, valid_hkls, valid_angs, valid_xys, ang_pixel_size = \
-              dp.simulate_rotation_series(
-                  self.planeData, self.gpl,
-                  self.ome_ranges,
-                  chi=self.chi)
+                dp.simulate_rotation_series(
+                        self.planeData, self.gpl,
+                        ome_ranges=self.ome_ranges,
+                        chi=self.chi, tVec_s=self.tvec
+                )
 
             # generate and save rings
             self.sim_data = []
@@ -367,8 +366,9 @@ class InstrumentViewer(object):
                     dp.cartToPixel(xy)
                 )
             ijs = np.vstack(self.sim_data)
-            #import pdb; pdb.set_trace()
-            self.overlay, = self._axes.plot(ijs[:, 1], ijs[:, 0], 'cs', ms=4)
+
+            self.overlay, = self._axes.plot(ijs[:, 1], ijs[:, 0], 's',
+                                            ms=12, mfc='none', mec='g', mew=2)
             self.have_overlay = True
 
     # FIXME: get rid of dpanel stuff here; not relevant for NF.
@@ -394,7 +394,9 @@ class InstrumentViewer(object):
                  panel.corner_ul,
                  ]
             )
-            mp = panel.map_to_plane(corners, self.dplane.rmat, self.dplane.tvec)
+            mp = panel.map_to_plane(corners,
+                                    self.dplane.rmat,
+                                    self.dplane.tvec)
 
             col_edges = dpanel.col_edge_vec
             row_edges = dpanel.row_edge_vec
@@ -414,9 +416,11 @@ class InstrumentViewer(object):
         img = equalize_adapthist(warped, clip_limit=0.1, nbins=2**16)
         if self.image is None:
             self.image = self._axes.imshow(
-                    img, cmap=plt.cm.bone,
-                    vmax=None,
-                    interpolation="none")
+                    img, cmap=plt.cm.magma,
+                    vmin=np.percentile(img, 50),
+                    vmax=np.percentile(img, 99.95),
+                    interpolation="none"
+            )
         else:
             self.image.set_data(img)
             self._figure.canvas.draw()
@@ -429,13 +433,15 @@ class InstrumentViewer(object):
                 if not detector_id == self._active_panel_id:
                     continue
 
-            img = equalize_adapthist(self.images[i], clip_limit=0.05, nbins=2**16)
-            panel = self.instr._detectors[detector_id]
+            img = equalize_adapthist(self.images[i],
+                                     clip_limit=0.05, nbins=2**16)
         if self.image is None:
             self.image = self._axes.imshow(
-                    img, cmap=plt.cm.bone,
-                    vmax=None,
-                    interpolation="none")
+                    img, cmap=plt.cm.magma,
+                    vmin=np.percentile(img, 50),
+                    vmax=np.percentile(img, 99.95),
+                    interpolation="none"
+            )
         else:
             self.image.set_data(img)
             self._figure.canvas.draw()
@@ -451,11 +457,14 @@ class InstrumentViewer(object):
         tth = ang_data[:, 0]
         eta = ang_data[:, 1]
         dsp = 0.5 *self. planeData.wavelength / np.sin(0.5*tth)
-        hkl = str(self.planeData.getHKLs(asStr=True, allHKLs=True, thisTTh=tth))
+        hkl = str(self.planeData.getHKLs(asStr=True, allHKLs=True,
+                                         thisTTh=tth))
         return "x=%.2f, y=%.2f, d=%.3f tth=%.2f eta=%.2f HKLs=%s" \
-          % (xy_data[0, 0], xy_data[0, 1], dsp, np.degrees(tth), np.degrees(eta), hkl)
+          % (xy_data[0, 0], xy_data[0, 1], dsp,
+             np.degrees(tth), np.degrees(eta), hkl)
     '''
     pass
+
 
 class DisplayPlane(object):
 

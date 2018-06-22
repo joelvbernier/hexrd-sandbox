@@ -13,6 +13,9 @@ import h5py
 from matplotlib import pyplot as plt
 
 
+"""
+# UNCOMMENT IF YOU HAVE A SANE LATEX ENV AND WANT NICE FIG LABELS
+#
 # Options
 params = {'text.usetex': True,
           'font.size': 14,
@@ -21,6 +24,7 @@ params = {'text.usetex': True,
           'pgf.texsystem': 'pdflatex'
           }
 plt.rcParams.update(params)
+"""
 
 plt.ion()
 
@@ -82,7 +86,7 @@ def montage(X, colormap=plt.cm.inferno, show_borders=True,
     ax.spines['left'].set_visible(False)
     cbar_ax = fig.add_axes([0.875, 0.155, 0.025, 0.725])
     cbar = fig.colorbar(im, cax=cbar_ax)
-    cbar.set_label(r"$\ln(\mbox{intensity})", labelpad=5)
+    cbar.set_label(r"$\ln(intensity)$", labelpad=5)
     ax.set_xticks([])
     ax.set_yticks([])
     if title is not None:
